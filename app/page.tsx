@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 type Role = "one" | "two";
 type GameStatus = "waiting" | "choosing" | "playing" | "finished";
@@ -25,6 +25,54 @@ type Session = {
   playerId: string;
 };
 
+const SESSION_STORAGE_KEY = "online-guess-session";
+const SESSION_STORAGE_EVENT = "online-guess-session-change";
+
+function readStoredSession(): Session | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
+  if (!saved) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(saved) as Session;
+    if (parsed.code && parsed.playerId) {
+      return parsed;
+    }
+    return null;
+  } catch {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    return null;
+  }
+}
+
+function setStoredSession(session: Session | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (session) {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+  } else {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  }
+  window.dispatchEvent(new Event(SESSION_STORAGE_EVENT));
+}
+
+function subscribeSession(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+  const handleChange = () => onStoreChange();
+  window.addEventListener("storage", handleChange);
+  window.addEventListener(SESSION_STORAGE_EVENT, handleChange);
+  return () => {
+    window.removeEventListener("storage", handleChange);
+    window.removeEventListener(SESSION_STORAGE_EVENT, handleChange);
+  };
+}
+
 function parseNumber(value: string) {
   const number = Number(value);
   if (!Number.isInteger(number) || number < 1 || number > 100) {
@@ -36,38 +84,13 @@ function parseNumber(value: string) {
 export default function Home() {
   const [name, setName] = useState("");
   const [joinCodeInput, setJoinCodeInput] = useState("");
-  const [session, setSession] = useState<Session | null>(() => {
-    if (typeof window === "undefined") {
-      return null;
-    }
-    const saved = window.localStorage.getItem("online-guess-session");
-    if (!saved) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(saved) as Session;
-      if (parsed.code && parsed.playerId) {
-        return parsed;
-      }
-      return null;
-    } catch {
-      window.localStorage.removeItem("online-guess-session");
-      return null;
-    }
-  });
+  const session = useSyncExternalStore(subscribeSession, readStoredSession, () => null);
   const [state, setState] = useState<GameState | null>(null);
   const [secretInput, setSecretInput] = useState("");
   const [guessInput, setGuessInput] = useState("");
   const [statusText, setStatusText] = useState("Create room or join with room code.");
   const [loading, setLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
-
-  useEffect(() => {
-    if (!session) {
-      return;
-    }
-    window.localStorage.setItem("online-guess-session", JSON.stringify(session));
-  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -154,7 +177,7 @@ export default function Home() {
       return;
     }
 
-    setSession(result.data);
+    setStoredSession(result.data);
     setState(null);
     setSecretInput("");
     setGuessInput("");
@@ -188,7 +211,7 @@ export default function Home() {
       setStatusText(result.error);
       return;
     }
-    setSession(result.data);
+    setStoredSession(result.data);
     setState(null);
     setSecretInput("");
     setGuessInput("");
@@ -256,7 +279,7 @@ export default function Home() {
   };
 
   const handleLeaveRoom = () => {
-    setSession(null);
+    setStoredSession(null);
     setState(null);
     setName("");
     setJoinCodeInput("");
@@ -264,7 +287,6 @@ export default function Home() {
     setGuessInput("");
     setCopiedCode(false);
     setStatusText("Create room or join with room code.");
-    localStorage.removeItem("online-guess-session");
   };
 
   const handleCopyCode = async () => {

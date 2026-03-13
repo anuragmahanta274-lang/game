@@ -48,6 +48,7 @@ type ActionResult<T> = {
 const store = globalThis as typeof globalThis & {
   __onlineGameRooms?: Map<string, Room>;
   __onlineGameRoomsLoaded?: boolean;
+  __onlineGameFsPersistenceEnabled?: boolean;
 };
 
 if (!store.__onlineGameRooms) {
@@ -57,8 +58,17 @@ if (!store.__onlineGameRooms) {
 const rooms = store.__onlineGameRooms;
 const roomsFile = path.join(process.cwd(), ".data", "online-rooms.json");
 
+if (store.__onlineGameFsPersistenceEnabled === undefined) {
+  store.__onlineGameFsPersistenceEnabled = true;
+}
+
 function ensureRoomsLoaded() {
   if (store.__onlineGameRoomsLoaded) {
+    return;
+  }
+
+  if (!store.__onlineGameFsPersistenceEnabled) {
+    store.__onlineGameRoomsLoaded = true;
     return;
   }
 
@@ -72,17 +82,25 @@ function ensureRoomsLoaded() {
     }
   } catch {
     rooms.clear();
+    store.__onlineGameFsPersistenceEnabled = false;
   }
 
   store.__onlineGameRoomsLoaded = true;
 }
 
 function persistRooms() {
-  const dir = path.dirname(roomsFile);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
+  if (!store.__onlineGameFsPersistenceEnabled) {
+    return;
   }
-  writeFileSync(roomsFile, JSON.stringify(Array.from(rooms.values())), "utf8");
+  const dir = path.dirname(roomsFile);
+  try {
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    writeFileSync(roomsFile, JSON.stringify(Array.from(rooms.values())), "utf8");
+  } catch {
+    store.__onlineGameFsPersistenceEnabled = false;
+  }
 }
 
 function randomId() {
