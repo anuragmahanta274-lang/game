@@ -1,3 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+
 type Role = "one" | "two";
 type Status = "waiting" | "choosing" | "playing" | "finished";
 
@@ -44,6 +47,7 @@ type ActionResult<T> = {
 
 const store = globalThis as typeof globalThis & {
   __onlineGameRooms?: Map<string, Room>;
+  __onlineGameRoomsLoaded?: boolean;
 };
 
 if (!store.__onlineGameRooms) {
@@ -51,6 +55,35 @@ if (!store.__onlineGameRooms) {
 }
 
 const rooms = store.__onlineGameRooms;
+const roomsFile = path.join(process.cwd(), ".data", "online-rooms.json");
+
+function ensureRoomsLoaded() {
+  if (store.__onlineGameRoomsLoaded) {
+    return;
+  }
+
+  try {
+    if (existsSync(roomsFile)) {
+      const raw = readFileSync(roomsFile, "utf8");
+      const parsed = JSON.parse(raw) as Room[];
+      for (const room of parsed) {
+        rooms.set(room.code, room);
+      }
+    }
+  } catch {
+    rooms.clear();
+  }
+
+  store.__onlineGameRoomsLoaded = true;
+}
+
+function persistRooms() {
+  const dir = path.dirname(roomsFile);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(roomsFile, JSON.stringify(Array.from(rooms.values())), "utf8");
+}
 
 function randomId() {
   return `${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36).slice(-4)}`;
@@ -66,6 +99,7 @@ function randomCode() {
 }
 
 function generateUniqueCode() {
+  ensureRoomsLoaded();
   let code = randomCode();
   while (rooms.has(code)) {
     code = randomCode();
@@ -91,15 +125,22 @@ function parseValidNumber(value: number) {
 }
 
 function cleanOldRooms() {
+  ensureRoomsLoaded();
   const now = Date.now();
+  let deleted = false;
   for (const [code, room] of rooms) {
     if (now - room.updatedAt > 1000 * 60 * 60 * 4) {
       rooms.delete(code);
+      deleted = true;
     }
+  }
+  if (deleted) {
+    persistRooms();
   }
 }
 
 export function createRoom(name: string) {
+  ensureRoomsLoaded();
   cleanOldRooms();
   const code = generateUniqueCode();
   const room: Room = {
@@ -120,6 +161,7 @@ export function createRoom(name: string) {
     updatedAt: Date.now(),
   };
   rooms.set(code, room);
+  persistRooms();
   return {
     code,
     playerId: room.players.one.id,
@@ -127,6 +169,7 @@ export function createRoom(name: string) {
 }
 
 export function joinRoom(codeInput: string, name: string): ActionResult<{ code: string; playerId: string }> {
+  ensureRoomsLoaded();
   cleanOldRooms();
   const code = codeInput.trim().toUpperCase();
   const room = rooms.get(code);
@@ -146,10 +189,12 @@ export function joinRoom(codeInput: string, name: string): ActionResult<{ code: 
   room.status = "choosing";
   room.lastMessage = `${player.name} joined. Both players choose a secret number.`;
   room.updatedAt = Date.now();
+  persistRooms();
   return { ok: true, data: { code, playerId: player.id } };
 }
 
 export function setSecretNumber(codeInput: string, playerId: string, numberInput: number): ActionResult<null> {
+  ensureRoomsLoaded();
   cleanOldRooms();
   const code = codeInput.trim().toUpperCase();
   const room = rooms.get(code);
@@ -185,10 +230,12 @@ export function setSecretNumber(codeInput: string, playerId: string, numberInput
     room.lastMessage = "Waiting for both players to choose secret numbers.";
   }
   room.updatedAt = Date.now();
+  persistRooms();
   return { ok: true, data: null };
 }
 
 export function submitGuess(codeInput: string, playerId: string, guessInput: number): ActionResult<null> {
+  ensureRoomsLoaded();
   cleanOldRooms();
   const code = codeInput.trim().toUpperCase();
   const room = rooms.get(code);
@@ -226,6 +273,7 @@ export function submitGuess(codeInput: string, playerId: string, guessInput: num
     room.lastMessage = `${playerName} guessed ${guess} and won.`;
     room.history.push(`${playerName} guessed ${guess} and won.`);
     room.updatedAt = Date.now();
+    persistRooms();
     return { ok: true, data: null };
   }
 
@@ -234,10 +282,12 @@ export function submitGuess(codeInput: string, playerId: string, guessInput: num
   room.lastMessage = `${playerName} guessed ${guess}. Hint: ${hint}.`;
   room.currentTurn = role === "one" ? "two" : "one";
   room.updatedAt = Date.now();
+  persistRooms();
   return { ok: true, data: null };
 }
 
 export function getPublicState(codeInput: string, playerId: string): ActionResult<PublicState> {
+  ensureRoomsLoaded();
   cleanOldRooms();
   const code = codeInput.trim().toUpperCase();
   const room = rooms.get(code);
