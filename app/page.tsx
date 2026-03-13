@@ -28,24 +28,11 @@ type Session = {
 const SESSION_STORAGE_KEY = "online-guess-session";
 const SESSION_STORAGE_EVENT = "online-guess-session-change";
 
-function readStoredSession(): Session | null {
+function readStoredSessionRaw(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
-  if (!saved) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(saved) as Session;
-    if (parsed.code && parsed.playerId) {
-      return parsed;
-    }
-    return null;
-  } catch {
-    window.localStorage.removeItem(SESSION_STORAGE_KEY);
-    return null;
-  }
+  return window.localStorage.getItem(SESSION_STORAGE_KEY);
 }
 
 function setStoredSession(session: Session | null) {
@@ -84,7 +71,24 @@ function parseNumber(value: string) {
 export default function Home() {
   const [name, setName] = useState("");
   const [joinCodeInput, setJoinCodeInput] = useState("");
-  const session = useSyncExternalStore(subscribeSession, readStoredSession, () => null);
+  const sessionRaw = useSyncExternalStore(subscribeSession, readStoredSessionRaw, () => null);
+  const session = useMemo(() => {
+    if (!sessionRaw) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(sessionRaw) as Session;
+      if (parsed.code && parsed.playerId) {
+        return parsed;
+      }
+      return null;
+    } catch {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+      return null;
+    }
+  }, [sessionRaw]);
   const [state, setState] = useState<GameState | null>(null);
   const [secretInput, setSecretInput] = useState("");
   const [guessInput, setGuessInput] = useState("");
