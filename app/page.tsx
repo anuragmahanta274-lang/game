@@ -306,7 +306,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-cyan-100 p-4 text-zinc-900 md:p-8">
+    <div className="min-h-screen bg-gradient-to-br from-indigo-100 via-white to-cyan-100 p-4 text-zinc-900 md:p-8 md:pt-35">
       <main className="mx-auto w-full max-w-4xl rounded-3xl border border-white/60 bg-white/80 p-6 shadow-2xl backdrop-blur md:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
